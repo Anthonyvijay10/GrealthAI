@@ -60,10 +60,19 @@ const AuthContext = createContext<AuthContextType>({
 
 // Auth Provider Component
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
+    setIsClient(true);
+    
+    // Now that we're on the client, we can safely access localStorage
+    const storedToken = localStorage.getItem('token');
+    if (storedToken) {
+      setToken(storedToken);
+    }
+    
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
@@ -89,8 +98,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (!response.ok) throw new Error(data.error);
       
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      if (isClient) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
+      
       setToken(data.token);
       setUser(data.user);
     } catch (error) {
@@ -100,15 +112,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("session_id");
-    localStorage.removeItem("chatHistory");
-    sessionStorage.clear();
-    document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    if (isClient) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("session_id");
+      localStorage.removeItem("chatHistory");
+      sessionStorage.clear();
+      document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    }
+    
     setToken(null);
     setUser(null);
-    window.location.reload();
+    
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
   };
   
   return (
