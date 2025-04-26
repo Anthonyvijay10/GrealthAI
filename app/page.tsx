@@ -145,7 +145,39 @@ export default function Home() {
           </div>
         </div>
         
-        
+        <div className="lg:w-1/2 flex justify-center">
+          <div className="relative w-full max-w-md aspect-square">
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full blur-3xl opacity-20 animate-pulse"></div>
+            <div className="absolute inset-8 bg-gray-900 rounded-full"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-3/4 h-3/4 rounded-3xl bg-gray-800 bg-opacity-60 backdrop-blur-md p-6 flex flex-col justify-between">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="w-12 h-1 bg-indigo-500 mb-4"></div>
+                    <h3 className="text-lg font-medium">Symptom Check</h3>
+                  </div>
+                  <Activity className="w-8 h-8 text-indigo-400" />
+                </div>
+                <div className="space-y-3 py-4">
+                  <div className="h-1 w-full bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-full w-3/4 bg-indigo-500 rounded-full"></div>
+                  </div>
+                  <div className="h-1 w-full bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-full w-1/2 bg-purple-500 rounded-full"></div>
+                  </div>
+                  <div className="h-1 w-full bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-full w-4/5 bg-pink-500 rounded-full"></div>
+                  </div>
+                </div>
+                <button className="flex items-center justify-center gap-2 bg-white bg-opacity-10 rounded-lg py-2 hover:bg-opacity-20 transition-all">
+                  <span>View Analysis</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       
       {/* Features Section */}
       <div id="features" className="py-20 bg-black bg-opacity-30">
