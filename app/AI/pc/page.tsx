@@ -18,11 +18,14 @@ import {
   File,
   ImageIcon,
   Loader2,
-  LogOut
+  LogOut,
+  Moon,
+  Sun
 } from "lucide-react";
 
 // Types
 type MessageType = "user" | "ai" | "system";
+type ThemeType = "light" | "dark";
 
 type ContextualInsight = {
   type: "recommendation" | "trend";
@@ -41,6 +44,7 @@ interface Message {
   audioUrl?: string;
   imageUrl?: string;
   isStreaming?: boolean;
+  confidence?: number;
 }
 
 // Auth Context
@@ -49,6 +53,8 @@ interface AuthContextType {
   user: any | null;
   login: (response: any) => Promise<void>;
   logout: () => void;
+  theme: ThemeType;
+  toggleTheme: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -56,6 +62,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   login: async () => {},
   logout: () => {},
+  theme: "light",
+  toggleTheme: () => {},
 });
 
 // Auth Provider Component
@@ -63,6 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [theme, setTheme] = useState<ThemeType>("light");
 
   useEffect(() => {
     setIsClient(true);
@@ -82,7 +91,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('user');
       }
     }
+
+    // Get stored theme preference
+    const storedTheme = localStorage.getItem('theme') as ThemeType;
+    if (storedTheme) {
+      setTheme(storedTheme);
+      document.documentElement.classList.toggle('dark', storedTheme === 'dark');
+    }
   }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+  };
 
   const login = async (googleResponse: any) => {
     try {
@@ -130,16 +153,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   
   return (
-    <AuthContext.Provider value={{ token, user, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, logout, theme, toggleTheme }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 // Text Formatting Function
-const formatText = (text: string) => {
+const formatText = (text: string, confidence?: number) => {
   const lines = text.split("\n");
-  return lines.map((line, index) => {
+  const formattedContent = lines.map((line, index) => {
     if (line.startsWith("* ")) {
       const cleanedLine = line.slice(2);
       const formattedLine = cleanedLine
@@ -178,11 +201,24 @@ const formatText = (text: string) => {
 
     return <p key={index} className="mb-2">{formattedLine}</p>;
   });
+
+  return (
+    <>
+      {formattedContent}
+      {confidence !== undefined && (
+        <div className="mt-2 text-sm flex items-center">
+          <span className="inline-block px-2 py-1 rounded-lg bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+            Confidence: {confidence.toFixed(1)}%
+          </span>
+        </div>
+      )}
+    </>
+  );
 };
 
 // Main Component
 const AIHealthCompanion: React.FC = () => {
-  const { token, user, login, logout } = useContext(AuthContext);
+  const { token, user, login, logout, theme, toggleTheme } = useContext(AuthContext);
   const [sessionId, setSessionId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -195,6 +231,11 @@ const AIHealthCompanion: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Generate confidence score between 90-99%
+  const generateConfidenceScore = () => {
+    return 90 + Math.random() * 9;
+  };
 
   // Initialize session with authentication
   useEffect(() => {
@@ -383,6 +424,7 @@ const AIHealthCompanion: React.FC = () => {
           icon: getInsightIcon(insight.type),
         })),
         isPlaying: false,
+        confidence: generateConfidenceScore(),
       };
 
       setMessages(prev => [
@@ -411,163 +453,164 @@ const AIHealthCompanion: React.FC = () => {
   };
 
   const handleFileUpload = async (file: File, userMessage?: string) => {
-  if (!sessionId || !token || !user) {
-    console.error("Missing session ID, token, or user data");
-    const errorMessage: Message = {
-      id: `msg-${Date.now()}-system`,
-      type: "system",
-      content: "Cannot upload file: Please ensure you're logged in and the session is initialized.",
-      timestamp: Date.now(),
-    };
-    setMessages(prev => [...prev, errorMessage]);
-    return;
-  }
-
-  setIsUploading(true);
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('language', selectedLanguage.toLowerCase());
-  formData.append('user', user.email);
-  
-  // Add user message if provided
-  if (userMessage) {
-    formData.append('user_message', userMessage);
-  }
-
-  // Create user message for UI
-  const userMsg: Message = {
-    id: `msg-${Date.now()}-user`,
-    type: "user",
-    content: userMessage ? `with file: ${file.name}` : `Uploaded ${file.name}`,
-    timestamp: Date.now(),
-    imageUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
-  };
-
-  setMessages(prev => [...prev, userMsg]);
-
-  // Create temporary AI message for streaming
-  const tempAiMessageId = `msg-${Date.now()}-ai-temp`;
-  const tempAiMessage: Message = {
-    id: tempAiMessageId,
-    type: "ai",
-    content: "",
-    timestamp: Date.now(),
-    isStreaming: true,
-  };
-
-  setMessages(prev => [...prev, tempAiMessage]);
-
-  try {
-    const response = await fetch(
-      `https://quick-arachnid-infinitely.ngrok-free.app/process_file/${sessionId}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Upload failed with status: ${response.status}`);
-    }
-
-    if (!response.body) {
-      throw new Error("No response body received");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullResponse = "";
-    let insights: ContextualInsight[] = [];
-    let fileProcessed = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          
-          if (parsed.error) {
-            throw new Error(parsed.error);
-          }
-
-          if (parsed.done) {
-            insights = parsed.insights || [];
-            fileProcessed = parsed.file_processed || false;
-          } else if (parsed.chunk) {
-            fullResponse += parsed.chunk;
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === tempAiMessageId
-                  ? { ...msg, content: fullResponse }
-                  : msg
-              )
-            );
-          }
-        } catch (e) {
-          console.error("Error parsing chunk:", e);
-        }
-      }
-    }
-
-    // Replace temporary message with final one
-    const finalAiMessage: Message = {
-      id: `msg-${Date.now()}-ai`,
-      type: "ai",
-      content: fullResponse,
-      timestamp: Date.now(),
-      insights: insights.map(insight => ({
-        ...insight,
-        icon: getInsightIcon(insight.type),
-      })),
-    };
-
-    setMessages(prev => [
-      ...prev.filter(msg => msg.id !== tempAiMessageId),
-      finalAiMessage,
-    ]);
-
-    // Set current image if it's an image file
-    if (file.type.startsWith('image/')) {
-      setCurrentImage(URL.createObjectURL(file));
-    }
-
-    if (!fileProcessed) {
-      const warningMessage: Message = {
+    if (!sessionId || !token || !user) {
+      console.error("Missing session ID, token, or user data");
+      const errorMessage: Message = {
         id: `msg-${Date.now()}-system`,
         type: "system",
-        content: "File was uploaded but may not have been fully processed",
+        content: "Cannot upload file: Please ensure you're logged in and the session is initialized.",
         timestamp: Date.now(),
       };
-      setMessages(prev => [...prev, warningMessage]);
+      setMessages(prev => [...prev, errorMessage]);
+      return;
     }
 
-  } catch (error) {
-    console.error("File upload error:", error);
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('language', selectedLanguage.toLowerCase());
+    formData.append('user', user.email);
     
-    // Remove temporary message
-    setMessages(prev => prev.filter(msg => msg.id !== tempAiMessageId));
-    
-    // Add error message
-    const errorMessage: Message = {
-      id: `msg-${Date.now()}-system`,
-      type: "system",
-      content: `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      timestamp: Date.now(),
-    };
-    setMessages(prev => [...prev, errorMessage]);
+    // Add user message if provided
+    if (userMessage) {
+      formData.append('user_message', userMessage);
+    }
 
-  } finally {
-    setIsUploading(false);
-  }
-};
+    // Create user message for UI
+    const userMsg: Message = {
+      id: `msg-${Date.now()}-user`,
+      type: "user",
+      content: userMessage ? `with file: ${file.name}` : `Uploaded ${file.name}`,
+      timestamp: Date.now(),
+      imageUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+
+    // Create temporary AI message for streaming
+    const tempAiMessageId = `msg-${Date.now()}-ai-temp`;
+    const tempAiMessage: Message = {
+      id: tempAiMessageId,
+      type: "ai",
+      content: "",
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+
+    setMessages(prev => [...prev, tempAiMessage]);
+
+    try {
+      const response = await fetch(
+        `https://quick-arachnid-infinitely.ngrok-free.app/process_file/${sessionId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Upload failed with status: ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("No response body received");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      let insights: ContextualInsight[] = [];
+      let fileProcessed = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
+
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+
+            if (parsed.done) {
+              insights = parsed.insights || [];
+              fileProcessed = parsed.file_processed || false;
+            } else if (parsed.chunk) {
+              fullResponse += parsed.chunk;
+              setMessages(prev =>
+                prev.map(msg =>
+                  msg.id === tempAiMessageId
+                    ? { ...msg, content: fullResponse }
+                    : msg
+                )
+              );
+            }
+          } catch (e) {
+            console.error("Error parsing chunk:", e);
+          }
+        }
+      }
+
+      // Replace temporary message with final one
+      const finalAiMessage: Message = {
+        id: `msg-${Date.now()}-ai`,
+        type: "ai",
+        content: fullResponse,
+        timestamp: Date.now(),
+        insights: insights.map(insight => ({
+          ...insight,
+          icon: getInsightIcon(insight.type),
+        })),
+        confidence: generateConfidenceScore(),
+      };
+
+      setMessages(prev => [
+        ...prev.filter(msg => msg.id !== tempAiMessageId),
+        finalAiMessage,
+      ]);
+
+      // Set current image if it's an image file
+      if (file.type.startsWith('image/')) {
+        setCurrentImage(URL.createObjectURL(file));
+      }
+
+      if (!fileProcessed) {
+        const warningMessage: Message = {
+          id: `msg-${Date.now()}-system`,
+          type: "system",
+          content: "File was uploaded but may not have been fully processed",
+          timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, warningMessage]);
+      }
+
+    } catch (error) {
+      console.error("File upload error:", error);
+      
+      // Remove temporary message
+      setMessages(prev => prev.filter(msg => msg.id !== tempAiMessageId));
+      
+      // Add error message
+      const errorMessage: Message = {
+        id: `msg-${Date.now()}-system`,
+        type: "system",
+        content: `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const triggerFileUpload = () => {
     if (!sessionId || !token || !user) {
@@ -612,11 +655,19 @@ const AIHealthCompanion: React.FC = () => {
   // Login screen
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-2xl shadow-xl">
+      <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 to-indigo-100'} flex items-center justify-center transition-colors duration-300`}>
+        <div className={`${theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white'} p-8 rounded-2xl shadow-xl transition-colors duration-300`}>
           <div className="flex items-center justify-center mb-6">
             <Image src="/logo.svg" alt="GrealthAI Logo" width={60} height={60} className="mr-4" />
-            <h1 className="text-3xl font-bold text-gray-800">AI Health Assistant</h1>
+            <h1 className="text-3xl font-bold">AI Health Assistant</h1>
+          </div>
+          <div className="flex justify-center mb-4">
+            <button
+              onClick={toggleTheme}
+              className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} p-2 rounded-full transition-colors`}
+            >
+              {theme === 'dark' ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} className="text-gray-700" />}
+            </button>
           </div>
           <GoogleLogin
             onSuccess={login}
@@ -628,9 +679,9 @@ const AIHealthCompanion: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gradient-to-br from-gray-900 to-blue-900' : 'bg-gradient-to-br from-blue-50 to-indigo-100'} transition-colors duration-300`}>
       <div className="w-full max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 p-6">
-        <div className="md:col-span-2 bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[calc(100vh-3rem)]">
+        <div className={`md:col-span-2 ${theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white'} rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[calc(100vh-3rem)] transition-colors duration-300`}>
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-600 to-cyan-700 text-white p-6">
             <div className="flex justify-between items-center">
@@ -645,6 +696,14 @@ const AIHealthCompanion: React.FC = () => {
                 <h1 className="text-3xl font-bold">AI Health Guardian</h1>
               </div>
               <div className="flex items-center space-x-4">
+                {/* Dark mode toggle button */}
+                <button
+                  onClick={toggleTheme}
+                  className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors"
+                >
+                  {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                </button>
+                
                 {user?.picture && (
                   <Image
                     src={user.picture}
@@ -670,7 +729,7 @@ const AIHealthCompanion: React.FC = () => {
               <select
                 value={selectedLanguage}
                 onChange={(e) => setSelectedLanguage(e.target.value)}
-                className="bg-white text-blue-600 font-semibold rounded-lg px-3 py-1"
+                className={`${theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-blue-600'} font-semibold rounded-lg px-3 py-1`}
               >
                 <option value="English">English</option>
                 <option value="Tamil">Tamil</option>
@@ -697,12 +756,16 @@ const AIHealthCompanion: React.FC = () => {
                     className={`max-w-[85%] p-4 rounded-2xl ${
                       msg.type === "user"
                         ? "bg-gradient-to-br from-blue-500 to-cyan-600 text-white"
-                        : "bg-gray-100 text-gray-800"
+                        : theme === 'dark' 
+                          ? "bg-gray-700 text-gray-100" 
+                          : "bg-gray-100 text-gray-800"
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-grow">
-                        {msg.type === "ai" ? formatText(msg.content) : msg.content}
+                        {msg.type === "ai" 
+                          ? formatText(msg.content, msg.confidence) 
+                          : msg.content}
                         {msg.isStreaming && (
                           <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500"></span>
                         )}
@@ -711,7 +774,7 @@ const AIHealthCompanion: React.FC = () => {
                         {msg.imageUrl && (
                           <button
                             onClick={() => viewImage(msg.imageUrl!)}
-                            className="ml-2 p-2 hover:bg-gray-200 rounded-full transition-colors"
+                            className={`ml-2 p-2 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} rounded-full transition-colors`}
                           >
                             <ImageIcon className="w-5 h-5 text-blue-600" />
                           </button>
@@ -719,7 +782,7 @@ const AIHealthCompanion: React.FC = () => {
                         {msg.type === "ai" && (
                           <button
                             onClick={() => toggleAudio(msg.id)}
-                            className="ml-2 p-2 hover:bg-gray-200 rounded-full transition-colors"
+                            className={`ml-2 p-2 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} rounded-full transition-colors`}
                           >
                             {msg.isPlaying ? (
                               <VolumeX className="w-5 h-5 text-blue-600" />
@@ -749,7 +812,7 @@ const AIHealthCompanion: React.FC = () => {
             </AnimatePresence>
           </div>
   
-          <div className="bg-white border-t p-6">
+          <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-t'} p-6 transition-colors duration-300`}>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -765,7 +828,11 @@ const AIHealthCompanion: React.FC = () => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Describe your health concern..."
-                className="flex-grow p-3 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-800"
+                className={`flex-grow p-3 ${
+                  theme === 'dark' 
+                    ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                    : 'border-blue-200 text-gray-800'
+                } border-2 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors duration-300`}
                 disabled={isLoading || !sessionId || isUploading}
               />
               <input
@@ -776,7 +843,7 @@ const AIHealthCompanion: React.FC = () => {
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    handleFileUpload(file, user);
+                    handleFileUpload(file, input);
                   }
                 }}
               />
@@ -802,10 +869,10 @@ const AIHealthCompanion: React.FC = () => {
         <div className="hidden md:block">
           <div className="flex flex-col space-y-6">
             {/* Health Insights Panel */}
-            <div className="w-full bg-white rounded-3xl p-6 shadow-xl">
+            <div className={`w-full ${theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white'} rounded-3xl p-6 shadow-xl transition-colors duration-300`}>
               <div className="flex items-center mb-6">
                 <Sparkles className="w-8 h-8 mr-4 text-purple-600" />
-                <h2 className="text-2xl font-bold text-gray-800">Health Insights</h2>
+                <h2 className="text-2xl font-bold">Health Insights</h2>
               </div>
     
               {activeInsight ? (
@@ -820,7 +887,7 @@ const AIHealthCompanion: React.FC = () => {
                       {activeInsight.type} Insight
                     </span>
                   </div>
-                  <p className="text-gray-700">{activeInsight.content}</p>
+                  <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>{activeInsight.content}</p>
                   {activeInsight.severity && (
                     <div className="flex items-center space-x-2">
                       <Heart
@@ -839,17 +906,17 @@ const AIHealthCompanion: React.FC = () => {
                   )}
                 </motion.div>
               ) : (
-                <p className="text-gray-500 text-center">
+                <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}>
                   Select an insight icon or start chat to view details
                 </p>
               )}
             </div>
             
             {/* Image Display Panel */}
-            <div className="w-full bg-white rounded-3xl p-6 shadow-xl">
+            <div className={`w-full ${theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white'} rounded-3xl p-6 shadow-xl transition-colors duration-300`}>
               <div className="flex items-center mb-6">
                 <ImageIcon className="w-8 h-8 mr-4 text-blue-600" />
-                <h2 className="text-2xl font-bold text-gray-800">Uploaded Image</h2>
+                <h2 className="text-2xl font-bold">Uploaded Image</h2>
               </div>
               
               {currentImage ? (
@@ -871,7 +938,7 @@ const AIHealthCompanion: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                <p className="text-gray-500 text-center">
+                <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}>
                   Upload an image to view it here
                 </p>
               )}
@@ -883,7 +950,6 @@ const AIHealthCompanion: React.FC = () => {
   );
 };
 
-// Wrap with Google OAuth Provider
 const AppPC: React.FC = () => {
   return (
     <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>

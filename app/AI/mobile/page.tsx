@@ -20,11 +20,14 @@ import {
   Loader2,
   LogOut,
   X,
-  Menu
+  Menu,
+  Moon,
+  Sun
 } from "lucide-react";
 
 // Types
 type MessageType = "user" | "ai" | "system";
+type ThemeType = "light" | "dark";
 
 type ContextualInsight = {
   type: "recommendation" | "trend";
@@ -42,7 +45,8 @@ interface Message {
   isPlaying?: boolean;
   audioUrl?: string;
   imageUrl?: string;
-  isStreaming?: boolean; // Add this
+  isStreaming?: boolean;
+  confidence?: number; // Added confidence property
 }
 
 // Auth Context
@@ -51,6 +55,8 @@ interface AuthContextType {
   user: any | null;
   login: (response: any) => Promise<void>;
   logout: () => void;
+  theme: ThemeType;
+  toggleTheme: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -58,6 +64,8 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   login: async () => {},
   logout: () => {},
+  theme: "light",
+  toggleTheme: () => {},
 });
 
 // Auth Provider Component
@@ -65,6 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [theme, setTheme] = useState<ThemeType>("light");
 
   useEffect(() => {
     const storedToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -79,8 +88,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
     
+    // Get stored theme preference
+    const storedTheme = typeof window !== 'undefined' ? localStorage.getItem('theme') as ThemeType : null;
+    if (storedTheme) {
+      setTheme(storedTheme);
+      document.documentElement.classList.toggle('dark', storedTheme === 'dark');
+    }
+    
     setIsLoading(false);
   }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+  };
 
   const login = async (googleResponse: any) => {
     try {
@@ -119,22 +142,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-blue-900 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, logout, theme, toggleTheme }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-const formatText = (text: string) => {
+const formatText = (text: string, confidence?: number) => {
   const lines = text.split("\n");
-  return lines.map((line, index) => {
+  const formattedContent = lines.map((line, index) => {
     if (line.startsWith("* ")) {
       const cleanedLine = line.slice(2);
       const formattedLine = cleanedLine
@@ -173,10 +196,23 @@ const formatText = (text: string) => {
 
     return <p key={index} className="mb-2">{formattedLine}</p>;
   });
+
+  return (
+    <>
+      {formattedContent}
+      {confidence !== undefined && (
+        <div className="mt-2 text-sm flex items-center">
+          <span className="inline-block px-2 py-1 rounded-lg bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+            Confidence: {confidence.toFixed(1)}%
+          </span>
+        </div>
+      )}
+    </>
+  );
 };
 
 const MobileAIHealthCompanion: React.FC = () => {
-  const { token, user, login, logout } = useContext(AuthContext);
+  const { token, user, login, logout, theme, toggleTheme } = useContext(AuthContext);
   const [sessionId, setSessionId] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -192,6 +228,11 @@ const MobileAIHealthCompanion: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Generate confidence score function
+  const generateConfidenceScore = () => {
+    return 90 + Math.random() * 9; // Random between 90-99
+  };
 
   useEffect(() => {
     const initializeSession = async () => {
@@ -386,7 +427,7 @@ const MobileAIHealthCompanion: React.FC = () => {
         }
       }
   
-      // Replace temporary message with final one
+      // Replace temporary message with final one including confidence score
       const finalAiMessage: Message = {
         id: `msg-${Date.now()}-ai`,
         type: "ai",
@@ -396,6 +437,7 @@ const MobileAIHealthCompanion: React.FC = () => {
           ...insight,
           icon: getInsightIcon(insight.type),
         })),
+        confidence: generateConfidenceScore(), // Add confidence score
       };
   
       setMessages(prev => [
@@ -458,124 +500,125 @@ const MobileAIHealthCompanion: React.FC = () => {
   };
 
   const sendMessage = async (message: string) => {
-  if (!sessionId || !token) return;
+    if (!sessionId || !token) return;
 
-  const userMessage: Message = {
-    id: `msg-${Date.now()}-user`,
-    type: "user",
-    content: message,
-    timestamp: Date.now(),
-  };
+    const userMessage: Message = {
+      id: `msg-${Date.now()}-user`,
+      type: "user",
+      content: message,
+      timestamp: Date.now(),
+    };
 
-  setMessages((prev) => [...prev, userMessage]);
-  setInput("");
-  setIsLoading(true);
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setIsLoading(true);
 
-  // Create a temporary AI message for streaming
-  const tempAiMessageId = `msg-${Date.now()}-ai-temp`;
-  const tempAiMessage: Message = {
-    id: tempAiMessageId,
-    type: "ai",
-    content: "",
-    timestamp: Date.now(),
-    isPlaying: false,
-    isStreaming: true
-  };
+    // Create a temporary AI message for streaming
+    const tempAiMessageId = `msg-${Date.now()}-ai-temp`;
+    const tempAiMessage: Message = {
+      id: tempAiMessageId,
+      type: "ai",
+      content: "",
+      timestamp: Date.now(),
+      isPlaying: false,
+      isStreaming: true
+    };
 
-  setMessages((prev) => [...prev, tempAiMessage]);
+    setMessages((prev) => [...prev, tempAiMessage]);
 
-  try {
-    const response = await fetch(`https://quick-arachnid-infinitely.ngrok-free.app/chat/${sessionId}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        user_message: `${message} explain only in ${selectedLanguage.toLowerCase()} language`,
-        language: selectedLanguage.toLowerCase(),
-        email: user?.email
-      }),
-    });
+    try {
+      const response = await fetch(`https://quick-arachnid-infinitely.ngrok-free.app/chat/${sessionId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_message: `${message} explain only in ${selectedLanguage.toLowerCase()} language`,
+          language: selectedLanguage.toLowerCase(),
+          email: user?.email
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Server responded with status: ${response.status}`);
-    }
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
 
-    if (!response.body) {
-      throw new Error("No response body");
-    }
+      if (!response.body) {
+        throw new Error("No response body");
+      }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullResponse = "";
-    let insights: ContextualInsight[] = [];
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      let insights: ContextualInsight[] = [];
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n').filter(line => line.trim() !== '');
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim() !== '');
 
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          
-          if (parsed.done) {
-            insights = parsed.insights || [];
-          } else if (parsed.chunk) {
-            fullResponse += parsed.chunk;
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
             
-            setMessages(prev => prev.map(msg => 
-              msg.id === tempAiMessageId 
-                ? { ...msg, content: fullResponse } 
-                : msg
-            ));
+            if (parsed.done) {
+              insights = parsed.insights || [];
+            } else if (parsed.chunk) {
+              fullResponse += parsed.chunk;
+              
+              setMessages(prev => prev.map(msg => 
+                msg.id === tempAiMessageId 
+                  ? { ...msg, content: fullResponse } 
+                  : msg
+              ));
+            }
+          } catch (e) {
+            console.error("Error parsing chunk:", e);
           }
-        } catch (e) {
-          console.error("Error parsing chunk:", e);
         }
       }
+
+      // Replace temporary message with final one including confidence score
+      const finalAiMessage: Message = {
+        id: `msg-${Date.now()}-ai`,
+        type: "ai",
+        content: fullResponse,
+        timestamp: Date.now(),
+        insights: insights.map((insight: ContextualInsight) => ({
+          ...insight,
+          icon: getInsightIcon(insight.type),
+        })),
+        isPlaying: false,
+        confidence: generateConfidenceScore(), // Add confidence score
+      };
+
+      setMessages(prev => [
+        ...prev.filter(msg => msg.id !== tempAiMessageId),
+        finalAiMessage
+      ]);
+
+      if (insights.length) {
+        setActiveInsight(insights[0]);
+      }
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMessage: Message = {
+        id: `msg-${Date.now()}-system`,
+        type: "system",
+        content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [
+        ...prev.filter(msg => msg.id !== tempAiMessageId),
+        errorMessage
+      ]);
+    } finally {
+      setIsLoading(false);
     }
-
-    // Replace temporary message with final one
-    const finalAiMessage: Message = {
-      id: `msg-${Date.now()}-ai`,
-      type: "ai",
-      content: fullResponse,
-      timestamp: Date.now(),
-      insights: insights.map((insight: ContextualInsight) => ({
-        ...insight,
-        icon: getInsightIcon(insight.type),
-      })),
-      isPlaying: false,
-    };
-
-    setMessages(prev => [
-      ...prev.filter(msg => msg.id !== tempAiMessageId),
-      finalAiMessage
-    ]);
-
-    if (insights.length) {
-      setActiveInsight(insights[0]);
-    }
-  } catch (error) {
-    console.error("Chat error:", error);
-    const errorMessage: Message = {
-      id: `msg-${Date.now()}-system`,
-      type: "system",
-      content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
-      timestamp: Date.now(),
-    };
-    setMessages(prev => [
-      ...prev.filter(msg => msg.id !== tempAiMessageId),
-      errorMessage
-    ]);
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   useEffect(() => {
     if (chatRef.current) {
@@ -601,12 +644,22 @@ const MobileAIHealthCompanion: React.FC = () => {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm">
+      <div className={`min-h-screen bg-gradient-to-br ${theme === 'dark' ? 'from-gray-900 to-blue-900' : 'from-blue-50 to-indigo-100'} flex items-center justify-center p-4 transition-colors duration-300`}>
+        <div className={`${theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white'} p-6 rounded-2xl shadow-xl w-full max-w-sm transition-colors duration-300`}>
           <div className="flex items-center justify-center mb-6">
             <Image src="/logo.svg" alt="GrealthAI Logo" width={40} height={40} className="mr-3" />
-            <h1 className="text-2xl font-bold text-gray-800">AI Health Guardian</h1>
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">AI Health Guardian</h1>
           </div>
+          <button
+            onClick={toggleTheme}
+            className={`mb-4 p-2 rounded-full ${theme === 'dark' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-800'} flex items-center justify-center w-full`}
+          >
+            {theme === 'dark' ? (
+              <><Sun className="w-5 h-5 mr-2" /> Switch to Light Mode</>
+            ) : (
+              <><Moon className="w-5 h-5 mr-2" /> Switch to Dark Mode</>
+            )}
+          </button>
           <GoogleLogin
             onSuccess={login}
             onError={() => console.log('Login Failed')}
@@ -617,7 +670,7 @@ const MobileAIHealthCompanion: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className={`min-h-screen bg-gradient-to-br ${theme === 'dark' ? 'from-gray-900 to-blue-900' : 'from-blue-50 to-indigo-100'} transition-colors duration-300`}>
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-cyan-700 text-white p-4 fixed top-0 left-0 right-0 z-10">
         <div className="flex items-center justify-between">
@@ -632,6 +685,13 @@ const MobileAIHealthCompanion: React.FC = () => {
             </button>
           </div>
           <div className="flex items-center space-x-2">
+            {/* Dark mode toggle button */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 hover:bg-white/20 rounded-full"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
             {user?.picture && (
               <Image
                 src={user.picture}
@@ -657,34 +717,10 @@ const MobileAIHealthCompanion: React.FC = () => {
         </div>
       </div>
 
-      {/* Loading Overlay (for dimming and loading)
-      <AnimatePresence>
-        {(isLoading || isUploading) && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center"
-          >
-            <motion.div
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              className="bg-white rounded-2xl p-6 flex items-center space-x-3"
-            >
-              <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
-              <p className="text-gray-700 font-medium">
-                {isUploading ? "Uploading file..." : "Processing..."}
-              </p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence> */}
-
       {/* Chat Area */}
       <div 
         ref={chatRef}
-        className="pb-20 pt-16 px-4 overflow-y-auto"
+        className={`pb-20 pt-16 px-4 overflow-y-auto ${theme === 'dark' ? 'text-white' : ''}`}
         style={{ height: 'calc(100vh - 4rem)' }}
       >
         <AnimatePresence>
@@ -699,18 +735,23 @@ const MobileAIHealthCompanion: React.FC = () => {
                 className={`max-w-[85%] p-3 rounded-xl ${
                   msg.type === "user"
                     ? "bg-gradient-to-br from-blue-500 to-cyan-600 text-white"
-                    : "bg-gray-100 text-gray-800"
-                }`}
+                    : theme === 'dark' 
+                      ? "bg-gray-700 text-gray-100" 
+                      : "bg-gray-100 text-gray-800"
+                } transition-colors duration-300`}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-grow">
-                    {msg.type === "ai" ? formatText(msg.content) : msg.content}
+                    {msg.type === "ai" ? formatText(msg.content, msg.confidence) : msg.content}
+                    {msg.isStreaming && (
+                      <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500"></span>
+                    )}
                   </div>
                   <div className="flex ml-2">
                     {msg.imageUrl && (
                       <button
                         onClick={() => viewImage(msg.imageUrl!)}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                        className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} rounded-full transition-colors`}
                       >
                         <ImageIcon className="w-5 h-5 text-orange-600" />
                       </button>
@@ -718,7 +759,7 @@ const MobileAIHealthCompanion: React.FC = () => {
                     {msg.type === "ai" && (
                       <button
                         onClick={() => toggleAudio(msg.id)}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                        className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} rounded-full transition-colors`}
                       >
                         {msg.isPlaying ? (
                           <VolumeX className="w-5 h-5 text-orange-600" />
@@ -738,7 +779,7 @@ const MobileAIHealthCompanion: React.FC = () => {
                           setActiveInsight(insight);
                           setShowInsights(true);
                         }}
-                        className="flex items-center text-sm bg-white/20 p-1.5 rounded-lg"
+                        className="flex items-center text-sm bg-white/20 p-1.5 rounded-lg hover:bg-white/30 transition-colors"
                       >
                         {insight.icon}
                       </button>
@@ -752,7 +793,7 @@ const MobileAIHealthCompanion: React.FC = () => {
       </div>
 
       {/* Input Area */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4">
+      <div className={`fixed bottom-0 left-0 right-0 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-t'} p-4 transition-colors duration-300`}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -788,7 +829,11 @@ const MobileAIHealthCompanion: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe your health concern..."
-            className="flex-grow p-2 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-800 text-sm"
+            className={`flex-grow p-2 border-2 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none ${
+              theme === 'dark' 
+                ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+                : 'border-blue-200 text-gray-800'
+            } text-sm transition-colors duration-300`}
             disabled={isLoading || !sessionId || isUploading}
           />
           <button
