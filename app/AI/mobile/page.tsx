@@ -202,9 +202,9 @@ const formatText = (text: string, confidence?: number) => {
       {formattedContent}
       {confidence !== undefined && (
         <div className="mt-2 text-sm flex items-center">
-          <span className="inline-block px-2 py-1 rounded-lg bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+          {/* <span className="inline-block px-2 py-1 rounded-lg bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
             Confidence: {confidence.toFixed(1)}%
-          </span>
+          </span> */}
         </div>
       )}
     </>

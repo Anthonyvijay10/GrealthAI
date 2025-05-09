@@ -38,7 +38,7 @@ load_dotenv()
 
 # Configure Flask App
 app = Flask(__name__)
-CORS(app, upports_credentials=True)
+CORS(app, supports_credentials=True)
 app.secret_key = os.urandom(24)
 
 # Configure Logging
